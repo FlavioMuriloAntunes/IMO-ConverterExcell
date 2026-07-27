@@ -5,7 +5,7 @@ from PIL import Image, ImageDraw, ImageFont
 import math
 from datetime import datetime
 import os
- 
+
 print("Iniciando o sistema...")
 
 # --- VARIÁVEIS GLOBAIS E CONFIGURAÇÕES DA TV ---
@@ -66,6 +66,29 @@ def abreviar_nome_vaga(texto):
             
     return " ".join(palavras)
 
+def truncar_texto_para_caber(texto, font, draw, largura_maxima):
+    try:
+        largura_atual = draw.textbbox((0, 0), texto, font=font)[2]
+    except:
+        largura_atual = font.getlength(texto)
+        
+    if largura_atual <= largura_maxima:
+        return texto
+        
+    texto_cortado = texto
+    while len(texto_cortado) > 0:
+        texto_cortado = texto_cortado[:-1]
+        teste_texto = texto_cortado + "..."
+        try:
+            largura_teste = draw.textbbox((0, 0), teste_texto, font=font)[2]
+        except:
+            largura_teste = font.getlength(teste_texto)
+            
+        if largura_teste <= largura_maxima:
+            return teste_texto
+            
+    return "..."
+
 def extrair_vagas(caminho):
     if not caminho: return []
     palavras_ignoradas = ['cargo', 'vaga', 'função', 'vagas', 'ocupação', 'descrição', 'descricao', 'cbo', 'nan']
@@ -93,12 +116,6 @@ def extrair_vagas(caminho):
                 
     return lista_limpa
 
-def measure_text(text, font, draw):
-    try:
-        return draw.textbbox((0, 0), text, font=font)[2]
-    except:
-        return font.getlength(text)
-
 def gerar_imagem_tv(lista_com_exp, lista_sem_exp, pasta_destino):
     
     lista_com_exp = [abreviar_nome_vaga(v) for v in lista_com_exp]
@@ -113,80 +130,56 @@ def gerar_imagem_tv(lista_com_exp, lista_sem_exp, pasta_destino):
     area_util_y = ALTURA_TV - MARGEM_Y_TOPO - ALTURA_CABECHALHO - MARGEM_Y_RODAPE
     largura_tabela = LARGURA_TV - (MARGEM_X * 2)
 
-    img_temp = Image.new('RGB', (10, 10))
-    draw_temp = ImageDraw.Draw(img_temp)
-
-    melhor_layout = None
-    min_vagas_removidas = 999999
-    melhor_listas = ([], [])
-
-    for linhas in range(12, 24):
-        cols_c = math.ceil(len(lista_com_exp) / linhas) if tem_com else 0
-        cols_s = math.ceil(len(lista_sem_exp) / linhas) if tem_sem else 0
+    # Travas Fixas de Layout (Garantindo que fique Legível)
+    ALTURA_MINIMA_CELULA = 42 
+    TAMANHO_MINIMO_FONTE = 20 
+    
+    # O máximo de linhas que cabem de forma confortável e espaçada
+    linhas_maximas = int(area_util_y / ALTURA_MINIMA_CELULA)
+    
+    # FORÇAMOS O LIMITE MÁXIMO DE COLUNAS AQUI (Deixando as colunas Com Experiência mais largas)
+    if tem_com and tem_sem:
+        cols_s = math.ceil(len(lista_sem_exp) / linhas_maximas)
+        if cols_s > 6: cols_s = 6 # Trava SEM EXPERIENCIA em no máximo 6 colunas
+        
+        cols_c = math.ceil(len(lista_com_exp) / linhas_maximas)
+        if cols_c > 4: cols_c = 4 # Trava COM EXPERIENCIA em no máximo 4 colunas
         
         total_cols = cols_c + cols_s
-        if total_cols == 0: total_cols = 1
-        
-        largura_col = largura_tabela / total_cols
-        altura_lin = area_util_y / linhas
-        
-        tamanho_fonte = min(42, max(20, int(altura_lin * 0.6)))
-        if tamanho_fonte < 20: continue 
-        
-        fonte = get_font(tamanho_fonte)
-        largura_max_texto = largura_col - 16 
-        
-        removidas_neste_teste = 0
-        com_validas = []
-        for v in lista_com_exp:
-            if measure_text(v, fonte, draw_temp) <= largura_max_texto:
-                com_validas.append(v)
-            else:
-                removidas_neste_teste += 1
-                
-        sem_validas = []
-        for v in lista_sem_exp:
-            if measure_text(v, fonte, draw_temp) <= largura_max_texto:
-                sem_validas.append(v)
-            else:
-                removidas_neste_teste += 1
-                
-        if removidas_neste_teste < min_vagas_removidas:
-            min_vagas_removidas = removidas_neste_teste
-            melhor_layout = {
-                'linhas': linhas,
-                'cols_com': cols_c,
-                'cols_sem': cols_s,
-                'total_cols': total_cols,
-                'largura_coluna': largura_col,
-                'altura_linha': altura_lin,
-                'tamanho_fonte': tamanho_fonte
-            }
-            melhor_listas = (com_validas, sem_validas)
-            
-            if min_vagas_removidas == 0:
-                break
+    else:
+        total_cols = math.ceil(max(len(lista_com_exp), len(lista_sem_exp)) / linhas_maximas)
+        if total_cols > 8: total_cols = 8
+        cols_c = total_cols if tem_com else 0
+        cols_s = total_cols if tem_sem else 0
 
-    vagas_com_finais, vagas_sem_finais = melhor_listas
-    layout = melhor_layout
+    largura_col_global = largura_tabela / total_cols
+    altura_lin_global = area_util_y / linhas_maximas
+    tamanho_fonte_global = min(42, max(TAMANHO_MINIMO_FONTE, int(altura_lin_global * 0.55)))
+
+    # Corte silencioso das vagas que ultrapassam as colunas/linhas permitidas
+    limite_vagas_com = cols_c * linhas_maximas
+    limite_vagas_sem = cols_s * linhas_maximas
     
+    vagas_com_finais = lista_com_exp[:limite_vagas_com]
+    vagas_sem_finais = lista_sem_exp[:limite_vagas_sem]
+
     secoes = []
     x_atual = MARGEM_X
     
     if tem_com:
-        larg_secao = layout['cols_com'] * layout['largura_coluna']
-        secoes.append({'titulo': "COM EXPERIÊNCIA", 'vagas': vagas_com_finais, 'x_esq': x_atual, 'largura': larg_secao, 'cols': layout['cols_com']})
+        larg_secao = cols_c * largura_col_global
+        secoes.append({'titulo': "COM EXPERIÊNCIA", 'vagas': vagas_com_finais, 'x_esq': x_atual, 'largura': larg_secao, 'cols': cols_c})
         x_atual += larg_secao 
         
     if tem_sem:
-        larg_secao = layout['cols_sem'] * layout['largura_coluna']
-        secoes.append({'titulo': "SEM EXPERIÊNCIA", 'vagas': vagas_sem_finais, 'x_esq': x_atual, 'largura': larg_secao, 'cols': layout['cols_sem']})
+        larg_secao = cols_s * largura_col_global
+        secoes.append({'titulo': "SEM EXPERIÊNCIA", 'vagas': vagas_sem_finais, 'x_esq': x_atual, 'largura': larg_secao, 'cols': cols_s})
 
     fonte_titulo = get_font(46, negrito=True)
     fonte_data = get_font(28, negrito=True)
-    tamanho_fonte_cabecalho = min(42, max(22, int(layout['tamanho_fonte'] * 1.3)))
+    tamanho_fonte_cabecalho = min(42, max(24, int(tamanho_fonte_global * 1.3)))
     fonte_cabecalho = get_font(tamanho_fonte_cabecalho, negrito=True)
-    fonte_vaga = get_font(layout['tamanho_fonte'], negrito=False)
+    fonte_vaga = get_font(tamanho_fonte_global, negrito=False)
     fonte_aviso = get_font(24, negrito=False)
 
     meses_pt = {
@@ -221,47 +214,46 @@ def gerar_imagem_tv(lista_com_exp, lista_sem_exp, pasta_destino):
         
     y_atual += ALTURA_CABECHALHO
 
-    # 3. PREENCHIMENTO CONTÍNUO (Remoção total de buracos brancos)
+    # 3. PREENCHIMENTO DE VAGAS 
     for sec in secoes:
+        if sec['cols'] == 0: continue
         largura_col_sec = sec['largura'] / sec['cols']
+        respiro_lateral = 12 
         
-        # Desenhamos o bloco inteiro (borda externa da categoria)
-        draw.rectangle([sec['x_esq'], y_atual, sec['x_esq'] + sec['largura'], y_atual + (layout['linhas'] * layout['altura_linha'])], outline='#DDDDDD', width=1)
+        for idx, vaga in enumerate(sec['vagas']):
+            col = idx // linhas_maximas
+            lin = idx % linhas_maximas
+            
+            x_esq = sec['x_esq'] + (col * largura_col_sec)
+            y_linha = y_atual + (lin * altura_lin_global)
+            x_dir = x_esq + largura_col_sec
+            y_baixo = y_linha + altura_lin_global
+            
+            cor_fundo = '#FFFFFF' if lin % 2 == 0 else '#F4F4F4'
+            draw.rectangle([x_esq, y_linha, x_dir, y_baixo], fill=cor_fundo, outline='#DDDDDD', width=1)
+            
+            texto_seguro = truncar_texto_para_caber(vaga, fonte_vaga, draw, largura_col_sec - respiro_lateral)
+            
+            try:
+                bbox = draw.textbbox((0, 0), texto_seguro, font=fonte_vaga)
+                offset_y = (altura_lin_global - (bbox[3] - bbox[1])) / 2
+                largura_txt = bbox[2] - bbox[0]
+            except:
+                offset_y = altura_lin_global * 0.2
+                largura_txt = fonte_vaga.getlength(texto_seguro)
+                
+            draw.text((x_esq + (largura_col_sec - largura_txt)/2, y_linha + offset_y - 4), texto_seguro, font=fonte_vaga, fill='black')
 
-        # Desenhamos célula por célula preenchendo todos os "buracos", mesmo que não haja vaga neles
-        for col in range(sec['cols']):
-            for lin in range(layout['linhas']):
-                
-                # A mágica do preenchimento: se for a última célula e não tiver vaga, nós apenas desenhamos ela em branco para manter a tabela bonita!
-                idx = (col * layout['linhas']) + lin 
-                
-                x_esq = sec['x_esq'] + (col * largura_col_sec)
-                y_linha = y_atual + (lin * layout['altura_linha'])
-                x_dir = x_esq + largura_col_sec
-                y_baixo = y_linha + layout['altura_linha']
-                
-                cor_fundo = '#FFFFFF' if lin % 2 == 0 else '#F4F4F4'
-                
-                # Desenha TODAS as células
-                draw.rectangle([x_esq, y_linha, x_dir, y_baixo], fill=cor_fundo, outline='#DDDDDD', width=1)
-                
-                # Se tiver vaga pra essa célula, nós escrevemos
-                if idx < len(sec['vagas']):
-                    vaga = sec['vagas'][idx]
-                    try:
-                        bbox = draw.textbbox((0, 0), vaga, font=fonte_vaga)
-                        offset_y = (layout['altura_linha'] - (bbox[3] - bbox[1])) / 2
-                        largura_txt = bbox[2] - bbox[0]
-                    except:
-                        offset_y = layout['altura_linha'] * 0.2
-                        largura_txt = fonte_vaga.getlength(vaga)
-                        
-                    draw.text((x_esq + (largura_col_sec - largura_txt)/2, y_linha + offset_y - 4), vaga, font=fonte_vaga, fill='black')
-
-    # 4. Divisória Central (Desenhada no lugar exato da união)
+    # 4. Divisória Central 
     if tem_com and tem_sem:
-        x_div = secoes[1]['x_esq'] 
-        draw.line([(x_div, MARGEM_Y_TOPO), (x_div, y_atual + (layout['linhas'] * layout['altura_linha']))], fill='#103560', width=4)
+        x_div = secoes[1]['x_esq']
+        linhas_usadas = 0
+        if len(vagas_com_finais) > 0 or len(vagas_sem_finais) > 0:
+            linhas_necessarias_esq = min(linhas_maximas, len(vagas_com_finais)) if cols_c == 1 else linhas_maximas
+            linhas_necessarias_dir = min(linhas_maximas, len(vagas_sem_finais)) if cols_s == 1 else linhas_maximas
+            linhas_usadas = max(linhas_necessarias_esq, linhas_necessarias_dir)
+            if linhas_usadas > 0:
+                draw.line([(x_div, MARGEM_Y_TOPO), (x_div, y_atual + (linhas_usadas * altura_lin_global))], fill='#103560', width=4)
 
     # 5. Logos no Rodapé 
     try:
@@ -300,8 +292,6 @@ def gerar_imagem_tv(lista_com_exp, lista_sem_exp, pasta_destino):
 
     nome_arquivo = os.path.join(pasta_destino, "Tabela_TV_Completa.png")
     img.save(nome_arquivo)
-    
-    return min_vagas_removidas, len(vagas_com_finais), len(vagas_sem_finais)
 
 def iniciar_conversao():
     if not caminho_com_exp and not caminho_sem_exp:
@@ -314,13 +304,9 @@ def iniciar_conversao():
 
         pasta_destino = os.path.dirname(caminho_com_exp if caminho_com_exp else caminho_sem_exp)
         
-        removidas, qtd_com, qtd_sem = gerar_imagem_tv(lista_com_exp, lista_sem_exp, pasta_destino)
+        gerar_imagem_tv(lista_com_exp, lista_sem_exp, pasta_destino)
         
-        msg_sucesso = f"Imagem criada com sucesso!\nSalva em: {pasta_destino}\n\nResultados na Tela:\n✅ {qtd_com} Vagas COM Experiência\n✅ {qtd_sem} Vagas SEM Experiência"
-        
-        if removidas > 0:
-            msg_sucesso += f"\n\n⚠️ Atenção: {removidas} vaga(s) precisaram ser ocultadas do painel por serem excessivamente grandes para a tela."
-            
+        msg_sucesso = f"Imagem criada com sucesso!\nSalva em: {pasta_destino}"
         messagebox.showinfo("Sucesso", msg_sucesso)
         
     except Exception as e:
