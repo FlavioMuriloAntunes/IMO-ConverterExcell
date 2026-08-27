@@ -6,18 +6,23 @@ import math
 from datetime import datetime
 import os
 
-print("Iniciando o sistema...")
+print("Iniciando o sistema de Carrossel...")
 
-# --- VARIÁVEIS GLOBAIS E CONFIGURAÇÕES DA TV ---
-caminho_com_exp = ""
-caminho_sem_exp = ""
+# --- VARIÁVEIS GLOBAIS ---
+caminhos = {
+    "SEM_EXP": "",
+    "COM_EXP": "",
+    "PCD": "",
+    "APRENDIZ": "",
+    "ESTAGIO": ""  # <-- Nova categoria adicionada
+}
 
 LARGURA_TV = 1920
 ALTURA_TV = 1080  
-MARGEM_X = 0           
-MARGEM_Y_TOPO = 135    
-MARGEM_Y_RODAPE = 140  
-ALTURA_CABECHALHO = 55 
+MARGEM_X = 50           
+MARGEM_Y_TOPO = 160    
+MARGEM_Y_RODAPE = 160  
+ALTURA_CABECHALHO = 80 
 
 def get_font(tamanho, negrito=False):
     try:
@@ -27,84 +32,55 @@ def get_font(tamanho, negrito=False):
         return ImageFont.load_default()
 
 def abreviar_nome_vaga(texto):
-    if not texto:
-        return texto
-        
+    if not texto: return texto
     palavras = texto.split()
     if len(palavras) > 0:
         primeira = palavras[0].upper()
-        
         abrevs = {
             "TÉCNICO": "Téc.", "TECNICO": "Téc.", "TÉCNICA": "Téc.", "TECNICA": "Téc.",
             "OPERADOR": "Op.", "OPERADORA": "Op.",
             "ASSISTENTE": "Ass.", "ASSIST.": "Ass.",
-            "AUXILIAR": "Aux.", 
-            "AJUDANTE": "Ajud.",
-            "ATENDENTE": "Atend.",
+            "AUXILIAR": "Aux.", "AJUDANTE": "Ajud.", "ATENDENTE": "Atend.",
             "ENCARREGADO": "Enc.", "ENCARREGADA": "Enc.",
             "COORDENADOR": "Coord.", "COORDENADORA": "Coord.",
             "ADMINISTRATIVO": "Adm.", "ADMINISTRATIVA": "Adm.", "ADMINISTRADOR": "Adm.",
-            "MECÂNICO": "Mec.", "MECANICO": "Mec.",
-            "MOTORISTA": "Mot.",
-            "ANALISTA": "Anal.",
-            "CONSULTOR": "Cons.", "CONSULTORA": "Cons.",
+            "MECÂNICO": "Mec.", "MECANICO": "Mec.", "MOTORISTA": "Mot.",
+            "ANALISTA": "Anal.", "CONSULTOR": "Cons.", "CONSULTORA": "Cons.",
             "VENDEDOR": "Vend.", "VENDEDORA": "Vend.",
-            "SUPERVISOR": "Sup.", "SUPERVISORA": "Sup.",
-            "ESPECIALISTA": "Esp.",
-            "INSPETOR": "Insp.", "INSPETORA": "Insp.",
-            "REPOSITOR": "Rep.",
-            "GERENTE": "Ger.",
-            "EMPREGADO": "Emp.", "EMPREGADA": "Emp.",
-            "CONFERENTE": "Conf.",
-            "MONTADOR": "Mont.",
-            "MARCENEIRO": "Marc.",
+            "SUPERVISOR": "Sup.", "SUPERVISORA": "Sup.", "ESPECIALISTA": "Esp.",
+            "INSPETOR": "Insp.", "INSPETORA": "Insp.", "REPOSITOR": "Rep.",
+            "GERENTE": "Ger.", "EMPREGADO": "Emp.", "EMPREGADA": "Emp.",
+            "CONFERENTE": "Conf.", "MONTADOR": "Mont.", "MARCENEIRO": "Marc.",
             "ELETRICISTA": "Elet."
         }
-        
         if primeira in abrevs:
             palavras[0] = abrevs[primeira]
-            
     return " ".join(palavras)
 
 def truncar_texto_para_caber(texto, font, draw, largura_maxima):
-    try:
-        largura_atual = draw.textbbox((0, 0), texto, font=font)[2]
-    except:
-        largura_atual = font.getlength(texto)
-        
-    if largura_atual <= largura_maxima:
-        return texto
+    try: largura_atual = draw.textbbox((0, 0), texto, font=font)[2]
+    except: largura_atual = font.getlength(texto)
+    if largura_atual <= largura_maxima: return texto
         
     texto_cortado = texto
     while len(texto_cortado) > 0:
         texto_cortado = texto_cortado[:-1]
         teste_texto = texto_cortado + "..."
-        try:
-            largura_teste = draw.textbbox((0, 0), teste_texto, font=font)[2]
-        except:
-            largura_teste = font.getlength(teste_texto)
-            
-        if largura_teste <= largura_maxima:
-            return teste_texto
-            
+        try: largura_teste = draw.textbbox((0, 0), teste_texto, font=font)[2]
+        except: largura_teste = font.getlength(teste_texto)
+        if largura_teste <= largura_maxima: return teste_texto
     return "..."
 
 def extrair_vagas(caminho):
     if not caminho: return []
     palavras_ignoradas = ['cargo', 'vaga', 'função', 'vagas', 'ocupação', 'descrição', 'descricao', 'cbo', 'nan']
     lista_limpa = []
-    
-    try:
-        df = pd.read_excel(caminho, header=None)
+    try: df = pd.read_excel(caminho, header=None)
     except Exception:
-        try:
-            df = pd.read_html(caminho)[0]
-        except Exception:
-            raise ValueError(f"O arquivo '{os.path.basename(caminho)}' está corrompido.")
+        try: df = pd.read_html(caminho)[0]
+        except Exception: return []
 
-    if len(df.columns) < 4:
-        raise ValueError(f"O arquivo '{os.path.basename(caminho)}' possui menos de 4 colunas.")
-
+    if len(df.columns) < 4: return []
     vagas_brutas = df.iloc[:, 3].dropna().tolist()
     
     for v in vagas_brutas:
@@ -113,74 +89,39 @@ def extrair_vagas(caminho):
             texto_padronizado = texto_bruto.title()
             if texto_padronizado not in lista_limpa:
                 lista_limpa.append(texto_padronizado)
-                
     return lista_limpa
 
-def gerar_imagem_tv(lista_com_exp, lista_sem_exp, pasta_destino):
-    
-    lista_com_exp = [abreviar_nome_vaga(v) for v in lista_com_exp]
-    lista_sem_exp = [abreviar_nome_vaga(v) for v in lista_sem_exp]
+def desenhar_slide(titulo_secao, lista_vagas, cor_tema):
+    lista_vagas = [abreviar_nome_vaga(v) for v in lista_vagas]
+    if not lista_vagas:
+        lista_vagas = ["NENHUMA VAGA DISPONÍVEL NO MOMENTO"]
 
-    tem_com = len(lista_com_exp) > 0
-    tem_sem = len(lista_sem_exp) > 0
-    if not tem_com and not tem_sem:
-        lista_sem_exp = ["NENHUMA VAGA ENCONTRADA HOJE"]
-        tem_sem = True
+    img = Image.new('RGB', (LARGURA_TV, ALTURA_TV), color='#FFFFFF')
+    draw = ImageDraw.Draw(img)
 
     area_util_y = ALTURA_TV - MARGEM_Y_TOPO - ALTURA_CABECHALHO - MARGEM_Y_RODAPE
     largura_tabela = LARGURA_TV - (MARGEM_X * 2)
 
-    # Travas Fixas de Layout (Garantindo que fique Legível)
-    ALTURA_MINIMA_CELULA = 42 
-    TAMANHO_MINIMO_FONTE = 20 
+    ALTURA_MINIMA_CELULA = 55 
+    TAMANHO_MINIMO_FONTE = 28 
     
-    # O máximo de linhas que cabem de forma confortável e espaçada
     linhas_maximas = int(area_util_y / ALTURA_MINIMA_CELULA)
+    cols_necessarias = math.ceil(len(lista_vagas) / linhas_maximas)
+    if cols_necessarias == 0: cols_necessarias = 1
+    if cols_necessarias > 5: cols_necessarias = 5 
     
-    # FORÇAMOS O LIMITE MÁXIMO DE COLUNAS AQUI (Deixando as colunas Com Experiência mais largas)
-    if tem_com and tem_sem:
-        cols_s = math.ceil(len(lista_sem_exp) / linhas_maximas)
-        if cols_s > 6: cols_s = 6 # Trava SEM EXPERIENCIA em no máximo 6 colunas
-        
-        cols_c = math.ceil(len(lista_com_exp) / linhas_maximas)
-        if cols_c > 4: cols_c = 4 # Trava COM EXPERIENCIA em no máximo 4 colunas
-        
-        total_cols = cols_c + cols_s
-    else:
-        total_cols = math.ceil(max(len(lista_com_exp), len(lista_sem_exp)) / linhas_maximas)
-        if total_cols > 8: total_cols = 8
-        cols_c = total_cols if tem_com else 0
-        cols_s = total_cols if tem_sem else 0
-
-    largura_col_global = largura_tabela / total_cols
+    largura_col_global = largura_tabela / cols_necessarias
     altura_lin_global = area_util_y / linhas_maximas
-    tamanho_fonte_global = min(42, max(TAMANHO_MINIMO_FONTE, int(altura_lin_global * 0.55)))
+    tamanho_fonte_global = min(50, max(TAMANHO_MINIMO_FONTE, int(altura_lin_global * 0.55)))
 
-    # Corte silencioso das vagas que ultrapassam as colunas/linhas permitidas
-    limite_vagas_com = cols_c * linhas_maximas
-    limite_vagas_sem = cols_s * linhas_maximas
-    
-    vagas_com_finais = lista_com_exp[:limite_vagas_com]
-    vagas_sem_finais = lista_sem_exp[:limite_vagas_sem]
+    limite_vagas = cols_necessarias * linhas_maximas
+    vagas_finais = lista_vagas[:limite_vagas]
 
-    secoes = []
-    x_atual = MARGEM_X
-    
-    if tem_com:
-        larg_secao = cols_c * largura_col_global
-        secoes.append({'titulo': "COM EXPERIÊNCIA", 'vagas': vagas_com_finais, 'x_esq': x_atual, 'largura': larg_secao, 'cols': cols_c})
-        x_atual += larg_secao 
-        
-    if tem_sem:
-        larg_secao = cols_s * largura_col_global
-        secoes.append({'titulo': "SEM EXPERIÊNCIA", 'vagas': vagas_sem_finais, 'x_esq': x_atual, 'largura': larg_secao, 'cols': cols_s})
-
-    fonte_titulo = get_font(46, negrito=True)
-    fonte_data = get_font(28, negrito=True)
-    tamanho_fonte_cabecalho = min(42, max(24, int(tamanho_fonte_global * 1.3)))
-    fonte_cabecalho = get_font(tamanho_fonte_cabecalho, negrito=True)
+    fonte_titulo = get_font(52, negrito=True)
+    fonte_data = get_font(32, negrito=True)
+    fonte_cabecalho = get_font(42, negrito=True)
     fonte_vaga = get_font(tamanho_fonte_global, negrito=False)
-    fonte_aviso = get_font(24, negrito=False)
+    fonte_aviso = get_font(26, negrito=False)
 
     meses_pt = {
         1: 'JANEIRO', 2: 'FEVEREIRO', 3: 'MARÇO', 4: 'ABRIL', 5: 'MAIO', 6: 'JUNHO',
@@ -190,72 +131,51 @@ def gerar_imagem_tv(lista_com_exp, lista_sem_exp, pasta_destino):
     texto_titulo = "VAGAS DE TRABALHO DISPONÍVEIS - AGÊNCIA DO TRABALHADOR"
     texto_data = f"HOJE: {agora.day} DE {meses_pt[agora.month]} DE {agora.year}"
 
-    img = Image.new('RGB', (LARGURA_TV, ALTURA_TV), color='#FFFFFF')
-    draw = ImageDraw.Draw(img)
-
-    # 1. Topo 
+    # Topo
     try: bbox_titulo = draw.textbbox((0, 0), texto_titulo, font=fonte_titulo)
-    except: bbox_titulo = [0, 0, fonte_titulo.getlength(texto_titulo), 46]
-    draw.text(((LARGURA_TV - (bbox_titulo[2] - bbox_titulo[0])) / 2, 20), texto_titulo, font=fonte_titulo, fill='#103560')
+    except: bbox_titulo = [0, 0, fonte_titulo.getlength(texto_titulo), 52]
+    draw.text(((LARGURA_TV - (bbox_titulo[2] - bbox_titulo[0])) / 2, 25), texto_titulo, font=fonte_titulo, fill=cor_tema)
 
     try: bbox_data = draw.textbbox((0, 0), texto_data, font=fonte_data)
-    except: bbox_data = [0, 0, fonte_data.getlength(texto_data), 28]
-    draw.text(((LARGURA_TV - (bbox_data[2] - bbox_data[0])) / 2, 80), texto_data, font=fonte_data, fill='#333333')
+    except: bbox_data = [0, 0, fonte_data.getlength(texto_data), 32]
+    draw.text(((LARGURA_TV - (bbox_data[2] - bbox_data[0])) / 2, 90), texto_data, font=fonte_data, fill='#333333')
 
-    # 2. Desenhando os Cabeçalhos 
+    # Cabeçalho da Categoria 
     y_atual = MARGEM_Y_TOPO
-    for sec in secoes:
-        x_esq = sec['x_esq']
-        x_dir = x_esq + sec['largura']
-        draw.rectangle([x_esq, y_atual, x_dir, y_atual + ALTURA_CABECHALHO], fill='#103560', outline='white', width=2)
-        try: bbox = draw.textbbox((0, 0), sec['titulo'], font=fonte_cabecalho)
-        except: bbox = [0, 0, fonte_cabecalho.getlength(sec['titulo']), 30]
-        draw.text((x_esq + (sec['largura'] - (bbox[2] - bbox[0]))/2, y_atual + 10), sec['titulo'], font=fonte_cabecalho, fill='white')
-        
+    draw.rectangle([MARGEM_X, y_atual, LARGURA_TV - MARGEM_X, y_atual + ALTURA_CABECHALHO], fill=cor_tema, outline='white', width=2)
+    try: bbox = draw.textbbox((0, 0), titulo_secao, font=fonte_cabecalho)
+    except: bbox = [0, 0, fonte_cabecalho.getlength(titulo_secao), 42]
+    draw.text((MARGEM_X + (largura_tabela - (bbox[2] - bbox[0]))/2, y_atual + 15), titulo_secao, font=fonte_cabecalho, fill='white')
+    
     y_atual += ALTURA_CABECHALHO
 
-    # 3. PREENCHIMENTO DE VAGAS 
-    for sec in secoes:
-        if sec['cols'] == 0: continue
-        largura_col_sec = sec['largura'] / sec['cols']
-        respiro_lateral = 12 
+    # Preenchendo as Vagas
+    respiro_lateral = 15 
+    for idx, vaga in enumerate(vagas_finais):
+        col = idx // linhas_maximas
+        lin = idx % linhas_maximas
         
-        for idx, vaga in enumerate(sec['vagas']):
-            col = idx // linhas_maximas
-            lin = idx % linhas_maximas
+        x_esq = MARGEM_X + (col * largura_col_global)
+        y_linha = y_atual + (lin * altura_lin_global)
+        x_dir = x_esq + largura_col_global
+        y_baixo = y_linha + altura_lin_global
+        
+        cor_fundo = '#FFFFFF' if lin % 2 == 0 else '#F4F4F4'
+        draw.rectangle([x_esq, y_linha, x_dir, y_baixo], fill=cor_fundo, outline='#DDDDDD', width=1)
+        
+        texto_seguro = truncar_texto_para_caber(vaga, fonte_vaga, draw, largura_col_global - respiro_lateral)
+        
+        try:
+            bbox = draw.textbbox((0, 0), texto_seguro, font=fonte_vaga)
+            offset_y = (altura_lin_global - (bbox[3] - bbox[1])) / 2
+            largura_txt = bbox[2] - bbox[0]
+        except:
+            offset_y = altura_lin_global * 0.2
+            largura_txt = fonte_vaga.getlength(texto_seguro)
             
-            x_esq = sec['x_esq'] + (col * largura_col_sec)
-            y_linha = y_atual + (lin * altura_lin_global)
-            x_dir = x_esq + largura_col_sec
-            y_baixo = y_linha + altura_lin_global
-            
-            cor_fundo = '#FFFFFF' if lin % 2 == 0 else '#F4F4F4'
-            draw.rectangle([x_esq, y_linha, x_dir, y_baixo], fill=cor_fundo, outline='#DDDDDD', width=1)
-            
-            texto_seguro = truncar_texto_para_caber(vaga, fonte_vaga, draw, largura_col_sec - respiro_lateral)
-            
-            try:
-                bbox = draw.textbbox((0, 0), texto_seguro, font=fonte_vaga)
-                offset_y = (altura_lin_global - (bbox[3] - bbox[1])) / 2
-                largura_txt = bbox[2] - bbox[0]
-            except:
-                offset_y = altura_lin_global * 0.2
-                largura_txt = fonte_vaga.getlength(texto_seguro)
-                
-            draw.text((x_esq + (largura_col_sec - largura_txt)/2, y_linha + offset_y - 4), texto_seguro, font=fonte_vaga, fill='black')
+        draw.text((x_esq + (largura_col_global - largura_txt)/2, y_linha + offset_y - 6), texto_seguro, font=fonte_vaga, fill='black')
 
-    # 4. Divisória Central 
-    if tem_com and tem_sem:
-        x_div = secoes[1]['x_esq']
-        linhas_usadas = 0
-        if len(vagas_com_finais) > 0 or len(vagas_sem_finais) > 0:
-            linhas_necessarias_esq = min(linhas_maximas, len(vagas_com_finais)) if cols_c == 1 else linhas_maximas
-            linhas_necessarias_dir = min(linhas_maximas, len(vagas_sem_finais)) if cols_s == 1 else linhas_maximas
-            linhas_usadas = max(linhas_necessarias_esq, linhas_necessarias_dir)
-            if linhas_usadas > 0:
-                draw.line([(x_div, MARGEM_Y_TOPO), (x_div, y_atual + (linhas_usadas * altura_lin_global))], fill='#103560', width=4)
-
-    # 5. Logos no Rodapé 
+    # Logos no Rodapé
     try:
         diretorio_atual = os.path.dirname(os.path.abspath(__file__))
         caminho_logo_pref = os.path.join(diretorio_atual, 'assets', 'giphy.webp')
@@ -264,7 +184,7 @@ def gerar_imagem_tv(lista_com_exp, lista_sem_exp, pasta_destino):
         logo_pref = Image.open(caminho_logo_pref).convert("RGBA")
         logo_agencia = Image.open(caminho_logo_agencia).convert("RGBA")
         
-        altura_logo = 100 
+        altura_logo = 110 
         
         prop_pref = altura_logo / float(logo_pref.size[1])
         largura_pref = int(float(logo_pref.size[0]) * float(prop_pref))
@@ -284,69 +204,151 @@ def gerar_imagem_tv(lista_com_exp, lista_sem_exp, pasta_destino):
     except Exception:
         pass
 
-    # 6. Aviso no final da página 
+    # Aviso final
     texto_aviso = "* As vagas estão sujeitas a limite de encaminhamentos e podem ser encerradas a qualquer momento."
     try: bbox_aviso = draw.textbbox((0, 0), texto_aviso, font=fonte_aviso)
-    except: bbox_aviso = [0, 0, fonte_aviso.getlength(texto_aviso), 24]
-    draw.text(((LARGURA_TV - (bbox_aviso[2] - bbox_aviso[0])) / 2, ALTURA_TV - 30), texto_aviso, font=fonte_aviso, fill='#555555')
+    except: bbox_aviso = [0, 0, fonte_aviso.getlength(texto_aviso), 26]
+    draw.text(((LARGURA_TV - (bbox_aviso[2] - bbox_aviso[0])) / 2, ALTURA_TV - 35), texto_aviso, font=fonte_aviso, fill='#555555')
 
-    nome_arquivo = os.path.join(pasta_destino, "Tabela_TV_Completa.png")
-    img.save(nome_arquivo)
+    return img
 
 def iniciar_conversao():
-    if not caminho_com_exp and not caminho_sem_exp:
-        messagebox.showwarning("Atenção", "Selecione pelo menos uma das planilhas para gerar a imagem!")
+    if not any(caminhos.values()):
+        messagebox.showwarning("Atenção", "Selecione pelo menos uma planilha para gerar a apresentação!")
         return
     
     try:
-        lista_com_exp = extrair_vagas(caminho_com_exp) if caminho_com_exp else []
-        lista_sem_exp = extrair_vagas(caminho_sem_exp) if caminho_sem_exp else []
+        pasta_base = ""
+        for caminho in caminhos.values():
+            if caminho:
+                pasta_base = os.path.dirname(caminho)
+                break
+        
+        pasta_destino = os.path.join(pasta_base, "Slides_TV")
+        if not os.path.exists(pasta_destino):
+            os.makedirs(pasta_destino)
 
-        pasta_destino = os.path.dirname(caminho_com_exp if caminho_com_exp else caminho_sem_exp)
+        slides_gerados = []
         
-        gerar_imagem_tv(lista_com_exp, lista_sem_exp, pasta_destino)
-        
-        msg_sucesso = f"Imagem criada com sucesso!\nSalva em: {pasta_destino}"
+        # 1. Slide SEM Experiência (Azul Padrão)
+        if caminhos["SEM_EXP"]:
+            vagas = extrair_vagas(caminhos["SEM_EXP"])
+            if vagas:
+                img = desenhar_slide("VAGAS SEM EXPERIÊNCIA", vagas, '#103560')
+                img.save(os.path.join(pasta_destino, "1_Sem_Experiencia.png"))
+                slides_gerados.append(img)
+
+        # 2. Slide COM Experiência (Laranja/Dourado Escuro)
+        if caminhos["COM_EXP"]:
+            vagas = extrair_vagas(caminhos["COM_EXP"])
+            if vagas:
+                img = desenhar_slide("VAGAS COM EXPERIÊNCIA", vagas, '#b35900')
+                img.save(os.path.join(pasta_destino, "2_Com_Experiencia.png"))
+                slides_gerados.append(img)
+
+        # 3. Slide PCD (Verde Escuro)
+        if caminhos["PCD"]:
+            vagas = extrair_vagas(caminhos["PCD"])
+            if vagas:
+                img = desenhar_slide("VAGAS EXCLUSIVAS PARA PCD", vagas, '#006622')
+                img.save(os.path.join(pasta_destino, "3_PCD.png"))
+                slides_gerados.append(img)
+
+        # 4. Slide JOVEM APRENDIZ (Roxo/Vinho)
+        if caminhos["APRENDIZ"]:
+            vagas = extrair_vagas(caminhos["APRENDIZ"])
+            if vagas:
+                img = desenhar_slide("VAGAS PARA JOVEM APRENDIZ", vagas, '#4d004d')
+                img.save(os.path.join(pasta_destino, "4_Jovem_Aprendiz.png"))
+                slides_gerados.append(img)
+                
+        # 5. Slide ESTÁGIO (Verde-Água / Teal) <-- Novo Slide Gerado
+        if caminhos["ESTAGIO"]:
+            vagas = extrair_vagas(caminhos["ESTAGIO"])
+            if vagas:
+                img = desenhar_slide("VAGAS PARA ESTÁGIO", vagas, '#008080')
+                img.save(os.path.join(pasta_destino, "5_Estagio.png"))
+                slides_gerados.append(img)
+
+        if not slides_gerados:
+            messagebox.showwarning("Atenção", "Nenhuma vaga válida foi encontrada nas planilhas selecionadas.")
+            return
+
+        caminho_gif = os.path.join(pasta_base, "Apresentacao_Vagas.gif")
+        if len(slides_gerados) > 1:
+            slides_gerados[0].save(
+                caminho_gif,
+                save_all=True,
+                append_images=slides_gerados[1:],
+                duration=8000, 
+                loop=0 
+            )
+        else:
+            slides_gerados[0].save(os.path.join(pasta_base, "Apresentacao_Unica.png"))
+
+        msg_sucesso = f"Apresentação gerada com sucesso!\n\n"
+        msg_sucesso += f"📁 Imagens separadas salvas na pasta:\n{pasta_destino}\n\n"
+        if len(slides_gerados) > 1:
+            msg_sucesso += f"🎬 Arquivo Animado gerado:\n{caminho_gif}"
+            
         messagebox.showinfo("Sucesso", msg_sucesso)
         
     except Exception as e:
         messagebox.showerror("Erro na Extração", f"Ocorreu um erro ao processar as planilhas:\n{str(e)}")
 
-def sel_com_exp():
-    global caminho_com_exp
-    caminho = filedialog.askopenfilename(title="Selecione a Planilha COM Experiência", filetypes=[("Excel", "*.xls *.xlsx")])
+def selecionar_arquivo(categoria, label):
+    caminho = filedialog.askopenfilename(title=f"Selecione a Planilha", filetypes=[("Excel", "*.xls *.xlsx")])
     if caminho:
-        caminho_com_exp = caminho
-        lbl_com.config(text=f"📁 {os.path.basename(caminho)}", fg="green")
-
-def sel_sem_exp():
-    global caminho_sem_exp
-    caminho = filedialog.askopenfilename(title="Selecione a Planilha SEM Experiência", filetypes=[("Excel", "*.xls *.xlsx")])
-    if caminho:
-        caminho_sem_exp = caminho
-        lbl_sem.config(text=f"📁 {os.path.basename(caminho)}", fg="green")
+        caminhos[categoria] = caminho
+        label.config(text=f"📁 {os.path.basename(caminho)}", fg="green")
 
 # --- INTERFACE GRÁFICA (GUI) ---
 janela = tk.Tk()
-janela.title("Gerador de Tabelas para TV")
-janela.geometry("500x320")
+janela.title("Gerador de Carrossel para TV")
+janela.geometry("550x500") # <-- Aumentado para caber o 5º botão
 janela.eval('tk::PlaceWindow . center')
 janela.configure(bg="#ffffff")
 
-label_titulo = tk.Label(janela, text="Gerador de Vagas para TV", font=("Arial", 14, "bold"), bg="#ffffff")
-label_titulo.pack(pady=15)
+label_titulo = tk.Label(janela, text="Gerador de Apresentação (Slides)", font=("Arial", 14, "bold"), bg="#ffffff")
+label_titulo.pack(pady=10)
 
-btn_sem = tk.Button(janela, text="Selecionar Planilha SEM Experiência", command=sel_sem_exp, font=("Arial", 10), bg="#F0F4F8")
-btn_sem.pack(pady=5)
-lbl_sem = tk.Label(janela, text="Nenhum arquivo selecionado.", font=("Arial", 8), bg="#ffffff", fg="gray")
-lbl_sem.pack(pady=2)
+frame_botoes = tk.Frame(janela, bg="#ffffff")
+frame_botoes.pack(pady=10)
 
-btn_com = tk.Button(janela, text="Selecionar Planilha COM Experiência", command=sel_com_exp, font=("Arial", 10), bg="#F0F4F8")
-btn_com.pack(pady=5)
-lbl_com = tk.Label(janela, text="Nenhum arquivo selecionado.", font=("Arial", 8), bg="#ffffff", fg="gray")
-lbl_com.pack(pady=2)
+# Sem Exp
+btn_sem = tk.Button(frame_botoes, text="Planilha SEM Experiência", command=lambda: selecionar_arquivo("SEM_EXP", lbl_sem), font=("Arial", 10), bg="#F0F4F8", width=25)
+btn_sem.grid(row=0, column=0, pady=5, padx=5)
+lbl_sem = tk.Label(frame_botoes, text="Nenhum", font=("Arial", 8), bg="#ffffff", fg="gray")
+lbl_sem.grid(row=0, column=1, pady=5, sticky="w")
 
-btn_converter = tk.Button(janela, text="📺 Gerar Tabela Dinâmica PNG", command=iniciar_conversao, font=("Arial", 11, "bold"), bg="#103560", fg="white")
-btn_converter.pack(pady=20)
+# Com Exp
+btn_com = tk.Button(frame_botoes, text="Planilha COM Experiência", command=lambda: selecionar_arquivo("COM_EXP", lbl_com), font=("Arial", 10), bg="#F0F4F8", width=25)
+btn_com.grid(row=1, column=0, pady=5, padx=5)
+lbl_com = tk.Label(frame_botoes, text="Nenhum", font=("Arial", 8), bg="#ffffff", fg="gray")
+lbl_com.grid(row=1, column=1, pady=5, sticky="w")
+
+# PCD
+btn_pcd = tk.Button(frame_botoes, text="Planilha PCD", command=lambda: selecionar_arquivo("PCD", lbl_pcd), font=("Arial", 10), bg="#F0F4F8", width=25)
+btn_pcd.grid(row=2, column=0, pady=5, padx=5)
+lbl_pcd = tk.Label(frame_botoes, text="Nenhum", font=("Arial", 8), bg="#ffffff", fg="gray")
+lbl_pcd.grid(row=2, column=1, pady=5, sticky="w")
+
+# Aprendiz
+btn_aprendiz = tk.Button(frame_botoes, text="Planilha Jovem Aprendiz", command=lambda: selecionar_arquivo("APRENDIZ", lbl_aprendiz), font=("Arial", 10), bg="#F0F4F8", width=25)
+btn_aprendiz.grid(row=3, column=0, pady=5, padx=5)
+lbl_aprendiz = tk.Label(frame_botoes, text="Nenhum", font=("Arial", 8), bg="#ffffff", fg="gray")
+lbl_aprendiz.grid(row=3, column=1, pady=5, sticky="w")
+
+# Estágio <-- Novo Botão
+btn_estagio = tk.Button(frame_botoes, text="Planilha Estágio", command=lambda: selecionar_arquivo("ESTAGIO", lbl_estagio), font=("Arial", 10), bg="#F0F4F8", width=25)
+btn_estagio.grid(row=4, column=0, pady=5, padx=5)
+lbl_estagio = tk.Label(frame_botoes, text="Nenhum", font=("Arial", 8), bg="#ffffff", fg="gray")
+lbl_estagio.grid(row=4, column=1, pady=5, sticky="w")
+
+lbl_aviso = tk.Label(janela, text="*Deixe em branco as categorias que não tiverem vagas hoje.", font=("Arial", 8, "italic"), bg="#ffffff", fg="gray")
+lbl_aviso.pack(pady=5)
+
+btn_converter = tk.Button(janela, text="🎬 Gerar Apresentação / GIF", command=iniciar_conversao, font=("Arial", 11, "bold"), bg="#103560", fg="white", height=2)
+btn_converter.pack(pady=15)
 
 janela.mainloop()
