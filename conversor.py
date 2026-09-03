@@ -5,8 +5,16 @@ from PIL import Image, ImageDraw, ImageFont
 import math
 from datetime import datetime
 import os
+import sys
+import cv2  
 
-print("Iniciando o sistema de Carrossel...")
+print("Iniciando o sistema de Carrossel com Vídeo Automático...")
+
+# --- DESCOBRINDO A PASTA EXATA DO APLICATIVO ---
+if getattr(sys, 'frozen', False):
+    diretorio_base = os.path.dirname(sys.executable)
+else:
+    diretorio_base = os.path.dirname(os.path.abspath(__file__))
 
 # --- VARIÁVEIS GLOBAIS ---
 caminhos = {
@@ -14,7 +22,8 @@ caminhos = {
     "COM_EXP": "",
     "PCD": "",
     "APRENDIZ": "",
-    "ESTAGIO": ""  # <-- Nova categoria adicionada
+    "ESTAGIO": "",
+    "VIDEO": ""  
 }
 
 LARGURA_TV = 1920
@@ -91,31 +100,21 @@ def extrair_vagas(caminho):
                 lista_limpa.append(texto_padronizado)
     return lista_limpa
 
-def desenhar_slide(titulo_secao, lista_vagas, cor_tema):
-    lista_vagas = [abreviar_nome_vaga(v) for v in lista_vagas]
-    if not lista_vagas:
-        lista_vagas = ["NENHUMA VAGA DISPONÍVEL NO MOMENTO"]
-
+def desenhar_slide(titulo_secao, vagas_da_pagina, cor_tema, pagina_atual, total_paginas):
     img = Image.new('RGB', (LARGURA_TV, ALTURA_TV), color='#FFFFFF')
     draw = ImageDraw.Draw(img)
 
     area_util_y = ALTURA_TV - MARGEM_Y_TOPO - ALTURA_CABECHALHO - MARGEM_Y_RODAPE
     largura_tabela = LARGURA_TV - (MARGEM_X * 2)
 
-    ALTURA_MINIMA_CELULA = 55 
-    TAMANHO_MINIMO_FONTE = 28 
+    LINHAS_MAXIMAS = 14 
     
-    linhas_maximas = int(area_util_y / ALTURA_MINIMA_CELULA)
-    cols_necessarias = math.ceil(len(lista_vagas) / linhas_maximas)
+    cols_necessarias = math.ceil(len(vagas_da_pagina) / LINHAS_MAXIMAS)
     if cols_necessarias == 0: cols_necessarias = 1
-    if cols_necessarias > 5: cols_necessarias = 5 
     
     largura_col_global = largura_tabela / cols_necessarias
-    altura_lin_global = area_util_y / linhas_maximas
-    tamanho_fonte_global = min(50, max(TAMANHO_MINIMO_FONTE, int(altura_lin_global * 0.55)))
-
-    limite_vagas = cols_necessarias * linhas_maximas
-    vagas_finais = lista_vagas[:limite_vagas]
+    altura_lin_global = area_util_y / LINHAS_MAXIMAS
+    tamanho_fonte_global = min(46, max(30, int(altura_lin_global * 0.50)))
 
     fonte_titulo = get_font(52, negrito=True)
     fonte_data = get_font(32, negrito=True)
@@ -140,20 +139,24 @@ def desenhar_slide(titulo_secao, lista_vagas, cor_tema):
     except: bbox_data = [0, 0, fonte_data.getlength(texto_data), 32]
     draw.text(((LARGURA_TV - (bbox_data[2] - bbox_data[0])) / 2, 90), texto_data, font=fonte_data, fill='#333333')
 
-    # Cabeçalho da Categoria 
     y_atual = MARGEM_Y_TOPO
     draw.rectangle([MARGEM_X, y_atual, LARGURA_TV - MARGEM_X, y_atual + ALTURA_CABECHALHO], fill=cor_tema, outline='white', width=2)
-    try: bbox = draw.textbbox((0, 0), titulo_secao, font=fonte_cabecalho)
-    except: bbox = [0, 0, fonte_cabecalho.getlength(titulo_secao), 42]
-    draw.text((MARGEM_X + (largura_tabela - (bbox[2] - bbox[0]))/2, y_atual + 15), titulo_secao, font=fonte_cabecalho, fill='white')
+    
+    texto_cabecalho = titulo_secao
+    if total_paginas > 1:
+        texto_cabecalho += f" (PÁGINA {pagina_atual} DE {total_paginas})"
+        
+    try: bbox = draw.textbbox((0, 0), texto_cabecalho, font=fonte_cabecalho)
+    except: bbox = [0, 0, fonte_cabecalho.getlength(texto_cabecalho), 42]
+    draw.text((MARGEM_X + (largura_tabela - (bbox[2] - bbox[0]))/2, y_atual + 15), texto_cabecalho, font=fonte_cabecalho, fill='white')
     
     y_atual += ALTURA_CABECHALHO
 
     # Preenchendo as Vagas
     respiro_lateral = 15 
-    for idx, vaga in enumerate(vagas_finais):
-        col = idx // linhas_maximas
-        lin = idx % linhas_maximas
+    for idx, vaga in enumerate(vagas_da_pagina):
+        col = idx // LINHAS_MAXIMAS
+        lin = idx % LINHAS_MAXIMAS
         
         x_esq = MARGEM_X + (col * largura_col_global)
         y_linha = y_atual + (lin * altura_lin_global)
@@ -177,9 +180,8 @@ def desenhar_slide(titulo_secao, lista_vagas, cor_tema):
 
     # Logos no Rodapé
     try:
-        diretorio_atual = os.path.dirname(os.path.abspath(__file__))
-        caminho_logo_pref = os.path.join(diretorio_atual, 'assets', 'giphy.webp')
-        caminho_logo_agencia = os.path.join(diretorio_atual, 'assets', 'logo_agencia.png')
+        caminho_logo_pref = os.path.join(diretorio_base, 'assets', 'giphy.webp')
+        caminho_logo_agencia = os.path.join(diretorio_base, 'assets', 'logo_agencia.png')
         
         logo_pref = Image.open(caminho_logo_pref).convert("RGBA")
         logo_agencia = Image.open(caminho_logo_agencia).convert("RGBA")
@@ -201,10 +203,9 @@ def desenhar_slide(titulo_secao, lista_vagas, cor_tema):
         
         img.paste(logo_agencia, (pos_x_inicial, pos_y_logos), logo_agencia)
         img.paste(logo_pref, (pos_x_inicial + largura_agencia + espacamento, pos_y_logos), logo_pref)
-    except Exception:
+    except Exception as e:
         pass
 
-    # Aviso final
     texto_aviso = "* As vagas estão sujeitas a limite de encaminhamentos e podem ser encerradas a qualquer momento."
     try: bbox_aviso = draw.textbbox((0, 0), texto_aviso, font=fonte_aviso)
     except: bbox_aviso = [0, 0, fonte_aviso.getlength(texto_aviso), 26]
@@ -212,92 +213,176 @@ def desenhar_slide(titulo_secao, lista_vagas, cor_tema):
 
     return img
 
+def processar_categoria_paginada(titulo, lista_vagas, cor_tema, prefixo_arquivo, pasta_destino):
+    imagens_geradas = []
+    lista_vagas = [abreviar_nome_vaga(v) for v in lista_vagas]
+    
+    if not lista_vagas:
+        img = desenhar_slide(titulo, ["NENHUMA VAGA DISPONÍVEL NO MOMENTO"], cor_tema, 1, 1)
+        img.save(os.path.join(pasta_destino, f"{prefixo_arquivo}_Unico.png"))
+        return [img]
+
+    VAGAS_POR_PAGINA = 14 * 5  
+    total_paginas = math.ceil(len(lista_vagas) / VAGAS_POR_PAGINA)
+
+    for i in range(total_paginas):
+        inicio = i * VAGAS_POR_PAGINA
+        fim = inicio + VAGAS_POR_PAGINA
+        vagas_desta_pagina = lista_vagas[inicio:fim]
+        
+        img = desenhar_slide(titulo, vagas_desta_pagina, cor_tema, i+1, total_paginas)
+        
+        nome_arquivo = f"{prefixo_arquivo}_Pagina_{i+1}.png" if total_paginas > 1 else f"{prefixo_arquivo}_Unico.png"
+        img.save(os.path.join(pasta_destino, nome_arquivo))
+        
+        imagens_geradas.append(img)
+
+    return imagens_geradas
+
+def processar_video_para_gif(caminho_video):
+    frames_video = []
+    duracoes_video = []
+    try:
+        cap = cv2.VideoCapture(caminho_video)
+        if not cap.isOpened():
+            print("Erro ao abrir o vídeo.")
+            return [], []
+            
+        fps = cap.get(cv2.CAP_PROP_FPS)
+        salto_frames = int(fps / 10) if fps > 10 else 1
+        
+        contador = 0
+        while True:
+            ret, frame = cap.read()
+            if not ret:
+                break
+                
+            if contador % salto_frames == 0:
+                frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+                img_pil = Image.fromarray(frame_rgb)
+                img_pil = img_pil.resize((LARGURA_TV, ALTURA_TV), Image.Resampling.LANCZOS)
+                
+                frames_video.append(img_pil)
+                duracoes_video.append(100) 
+                
+            contador += 1
+            
+        cap.release()
+        return frames_video, duracoes_video
+    except Exception as e:
+        print(f"Erro ao processar vídeo: {e}")
+        return [], []
+
 def iniciar_conversao():
-    if not any(caminhos.values()):
-        messagebox.showwarning("Atenção", "Selecione pelo menos uma planilha para gerar a apresentação!")
+    planilhas_preenchidas = any(caminhos[k] for k in ["SEM_EXP", "COM_EXP", "PCD", "APRENDIZ", "ESTAGIO"])
+    if not planilhas_preenchidas and not caminhos["VIDEO"]:
+        messagebox.showwarning("Atenção", "Selecione pelo menos uma planilha ou um vídeo para gerar a apresentação!")
         return
     
     try:
         pasta_base = ""
         for caminho in caminhos.values():
-            if caminho:
+            if caminho and "assets" not in caminho: 
                 pasta_base = os.path.dirname(caminho)
                 break
         
+        if not pasta_base:
+            pasta_base = diretorio_base
+
         pasta_destino = os.path.join(pasta_base, "Slides_TV")
         if not os.path.exists(pasta_destino):
             os.makedirs(pasta_destino)
 
-        slides_gerados = []
+        todos_slides = []
+        duracoes = [] 
         
-        # 1. Slide SEM Experiência (Azul Padrão)
         if caminhos["SEM_EXP"]:
             vagas = extrair_vagas(caminhos["SEM_EXP"])
-            if vagas:
-                img = desenhar_slide("VAGAS SEM EXPERIÊNCIA", vagas, '#103560')
-                img.save(os.path.join(pasta_destino, "1_Sem_Experiencia.png"))
-                slides_gerados.append(img)
+            slides = processar_categoria_paginada("VAGAS SEM EXPERIÊNCIA", vagas, '#103560', "1_SemExp", pasta_destino)
+            todos_slides.extend(slides)
+            duracoes.extend([12000] * len(slides)) 
 
-        # 2. Slide COM Experiência (Laranja/Dourado Escuro)
         if caminhos["COM_EXP"]:
             vagas = extrair_vagas(caminhos["COM_EXP"])
-            if vagas:
-                img = desenhar_slide("VAGAS COM EXPERIÊNCIA", vagas, '#b35900')
-                img.save(os.path.join(pasta_destino, "2_Com_Experiencia.png"))
-                slides_gerados.append(img)
+            slides = processar_categoria_paginada("VAGAS COM EXPERIÊNCIA", vagas, '#b35900', "2_ComExp", pasta_destino)
+            todos_slides.extend(slides)
+            duracoes.extend([12000] * len(slides))
 
-        # 3. Slide PCD (Verde Escuro)
         if caminhos["PCD"]:
             vagas = extrair_vagas(caminhos["PCD"])
-            if vagas:
-                img = desenhar_slide("VAGAS EXCLUSIVAS PARA PCD", vagas, '#006622')
-                img.save(os.path.join(pasta_destino, "3_PCD.png"))
-                slides_gerados.append(img)
+            slides = processar_categoria_paginada("VAGAS EXCLUSIVAS PARA PCD", vagas, '#006622', "3_PCD", pasta_destino)
+            todos_slides.extend(slides)
+            duracoes.extend([12000] * len(slides))
 
-        # 4. Slide JOVEM APRENDIZ (Roxo/Vinho)
         if caminhos["APRENDIZ"]:
             vagas = extrair_vagas(caminhos["APRENDIZ"])
-            if vagas:
-                img = desenhar_slide("VAGAS PARA JOVEM APRENDIZ", vagas, '#4d004d')
-                img.save(os.path.join(pasta_destino, "4_Jovem_Aprendiz.png"))
-                slides_gerados.append(img)
+            slides = processar_categoria_paginada("VAGAS PARA JOVEM APRENDIZ", vagas, '#4d004d', "4_Aprendiz", pasta_destino)
+            todos_slides.extend(slides)
+            duracoes.extend([12000] * len(slides))
                 
-        # 5. Slide ESTÁGIO (Verde-Água / Teal) <-- Novo Slide Gerado
         if caminhos["ESTAGIO"]:
             vagas = extrair_vagas(caminhos["ESTAGIO"])
-            if vagas:
-                img = desenhar_slide("VAGAS PARA ESTÁGIO", vagas, '#008080')
-                img.save(os.path.join(pasta_destino, "5_Estagio.png"))
-                slides_gerados.append(img)
+            slides = processar_categoria_paginada("VAGAS PARA ESTÁGIO", vagas, '#008080', "5_Estagio", pasta_destino)
+            todos_slides.extend(slides)
+            duracoes.extend([12000] * len(slides))
 
-        if not slides_gerados:
-            messagebox.showwarning("Atenção", "Nenhuma vaga válida foi encontrada nas planilhas selecionadas.")
+        # INSERIR O VÍDEO (Automático ou Manual)
+        if caminhos["VIDEO"]:
+            lbl_status.config(text="Processando o vídeo... Isso pode levar um minuto.", fg="blue")
+            janela.update()
+            
+            frames_vid, duracoes_vid = processar_video_para_gif(caminhos["VIDEO"])
+            if frames_vid:
+                todos_slides.extend(frames_vid)
+                duracoes.extend(duracoes_vid)
+                
+                # ==== A MÁGICA DOS 3 SEGUNDOS ====
+                # Adiciona 3000 ms (3 segundos) na duração do último frame do vídeo
+                duracoes[-1] += 3000
+                # =================================
+                
+                lbl_status.config(text="Vídeo anexado com sucesso!", fg="green")
+            else:
+                lbl_status.config(text="Falha ao ler o vídeo. Ignorando a etapa.", fg="red")
+            janela.update()
+
+        if not todos_slides:
+            messagebox.showwarning("Atenção", "Nada foi gerado.")
             return
 
+        lbl_status.config(text="Montando o arquivo GIF final...", fg="blue")
+        janela.update()
+
         caminho_gif = os.path.join(pasta_base, "Apresentacao_Vagas.gif")
-        if len(slides_gerados) > 1:
-            slides_gerados[0].save(
+        if len(todos_slides) > 1:
+            todos_slides[0].save(
                 caminho_gif,
                 save_all=True,
-                append_images=slides_gerados[1:],
-                duration=8000, 
+                append_images=todos_slides[1:],
+                duration=duracoes, 
                 loop=0 
             )
         else:
-            slides_gerados[0].save(os.path.join(pasta_base, "Apresentacao_Unica.png"))
+            todos_slides[0].save(os.path.join(pasta_base, "Apresentacao_Unica.png"))
+
+        lbl_status.config(text="Pronto!", fg="green")
 
         msg_sucesso = f"Apresentação gerada com sucesso!\n\n"
-        msg_sucesso += f"📁 Imagens separadas salvas na pasta:\n{pasta_destino}\n\n"
-        if len(slides_gerados) > 1:
-            msg_sucesso += f"🎬 Arquivo Animado gerado:\n{caminho_gif}"
+        if len(todos_slides) > 1:
+            msg_sucesso += f"🎬 Arquivo salvo em:\n{caminho_gif}"
             
         messagebox.showinfo("Sucesso", msg_sucesso)
         
     except Exception as e:
-        messagebox.showerror("Erro na Extração", f"Ocorreu um erro ao processar as planilhas:\n{str(e)}")
+        lbl_status.config(text="Erro ao gerar", fg="red")
+        messagebox.showerror("Erro na Extração", f"Ocorreu um erro:\n{str(e)}")
 
-def selecionar_arquivo(categoria, label):
-    caminho = filedialog.askopenfilename(title=f"Selecione a Planilha", filetypes=[("Excel", "*.xls *.xlsx")])
+def selecionar_arquivo(categoria, label, e_video=False):
+    if e_video:
+        caminho = filedialog.askopenfilename(title=f"Selecione o Vídeo MP4", filetypes=[("Vídeos", "*.mp4 *.avi")])
+    else:
+        caminho = filedialog.askopenfilename(title=f"Selecione a Planilha", filetypes=[("Excel", "*.xls *.xlsx")])
+        
     if caminho:
         caminhos[categoria] = caminho
         label.config(text=f"📁 {os.path.basename(caminho)}", fg="green")
@@ -305,7 +390,7 @@ def selecionar_arquivo(categoria, label):
 # --- INTERFACE GRÁFICA (GUI) ---
 janela = tk.Tk()
 janela.title("Gerador de Carrossel para TV")
-janela.geometry("550x500") # <-- Aumentado para caber o 5º botão
+janela.geometry("550x580") 
 janela.eval('tk::PlaceWindow . center')
 janela.configure(bg="#ffffff")
 
@@ -315,40 +400,54 @@ label_titulo.pack(pady=10)
 frame_botoes = tk.Frame(janela, bg="#ffffff")
 frame_botoes.pack(pady=10)
 
-# Sem Exp
 btn_sem = tk.Button(frame_botoes, text="Planilha SEM Experiência", command=lambda: selecionar_arquivo("SEM_EXP", lbl_sem), font=("Arial", 10), bg="#F0F4F8", width=25)
 btn_sem.grid(row=0, column=0, pady=5, padx=5)
 lbl_sem = tk.Label(frame_botoes, text="Nenhum", font=("Arial", 8), bg="#ffffff", fg="gray")
 lbl_sem.grid(row=0, column=1, pady=5, sticky="w")
 
-# Com Exp
 btn_com = tk.Button(frame_botoes, text="Planilha COM Experiência", command=lambda: selecionar_arquivo("COM_EXP", lbl_com), font=("Arial", 10), bg="#F0F4F8", width=25)
 btn_com.grid(row=1, column=0, pady=5, padx=5)
 lbl_com = tk.Label(frame_botoes, text="Nenhum", font=("Arial", 8), bg="#ffffff", fg="gray")
 lbl_com.grid(row=1, column=1, pady=5, sticky="w")
 
-# PCD
 btn_pcd = tk.Button(frame_botoes, text="Planilha PCD", command=lambda: selecionar_arquivo("PCD", lbl_pcd), font=("Arial", 10), bg="#F0F4F8", width=25)
 btn_pcd.grid(row=2, column=0, pady=5, padx=5)
 lbl_pcd = tk.Label(frame_botoes, text="Nenhum", font=("Arial", 8), bg="#ffffff", fg="gray")
 lbl_pcd.grid(row=2, column=1, pady=5, sticky="w")
 
-# Aprendiz
 btn_aprendiz = tk.Button(frame_botoes, text="Planilha Jovem Aprendiz", command=lambda: selecionar_arquivo("APRENDIZ", lbl_aprendiz), font=("Arial", 10), bg="#F0F4F8", width=25)
 btn_aprendiz.grid(row=3, column=0, pady=5, padx=5)
 lbl_aprendiz = tk.Label(frame_botoes, text="Nenhum", font=("Arial", 8), bg="#ffffff", fg="gray")
 lbl_aprendiz.grid(row=3, column=1, pady=5, sticky="w")
 
-# Estágio <-- Novo Botão
 btn_estagio = tk.Button(frame_botoes, text="Planilha Estágio", command=lambda: selecionar_arquivo("ESTAGIO", lbl_estagio), font=("Arial", 10), bg="#F0F4F8", width=25)
 btn_estagio.grid(row=4, column=0, pady=5, padx=5)
 lbl_estagio = tk.Label(frame_botoes, text="Nenhum", font=("Arial", 8), bg="#ffffff", fg="gray")
 lbl_estagio.grid(row=4, column=1, pady=5, sticky="w")
 
+# SEPARADOR VISUAL
+tk.Frame(frame_botoes, height=2, bg="#dddddd", width=400).grid(row=5, column=0, columnspan=2, pady=10)
+
+btn_video = tk.Button(frame_botoes, text="🎥 Inserir/Mudar Vídeo", command=lambda: selecionar_arquivo("VIDEO", lbl_video, e_video=True), font=("Arial", 10, "bold"), bg="#ffddcc", width=25)
+btn_video.grid(row=6, column=0, pady=5, padx=5)
+lbl_video = tk.Label(frame_botoes, text="Nenhum", font=("Arial", 8), bg="#ffffff", fg="gray")
+lbl_video.grid(row=6, column=1, pady=5, sticky="w")
+
 lbl_aviso = tk.Label(janela, text="*Deixe em branco as categorias que não tiverem vagas hoje.", font=("Arial", 8, "italic"), bg="#ffffff", fg="gray")
 lbl_aviso.pack(pady=5)
 
 btn_converter = tk.Button(janela, text="🎬 Gerar Apresentação / GIF", command=iniciar_conversao, font=("Arial", 11, "bold"), bg="#103560", fg="white", height=2)
-btn_converter.pack(pady=15)
+btn_converter.pack(pady=10)
+
+lbl_status = tk.Label(janela, text="", font=("Arial", 9, "bold"), bg="#ffffff")
+lbl_status.pack()
+
+# =========================================================
+# LÓGICA DO VÍDEO AUTOMÁTICO AO ABRIR O PROGRAMA
+# =========================================================
+caminho_video_padrao = os.path.join(diretorio_base, 'assets', 'video.mp4')
+if os.path.exists(caminho_video_padrao):
+    caminhos["VIDEO"] = caminho_video_padrao
+    lbl_video.config(text="📁 video.mp4 (Carregado auto)", fg="green")
 
 janela.mainloop()
